@@ -5,7 +5,12 @@
 FROM python:3.12-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    # Use the interpreter already in the image. Left to itself uv downloads its
+    # own Python, and the venv would then point at a path the runtime stage
+    # does not have.
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON=python3.12
 
 RUN pip install --no-cache-dir uv==0.12.23
 
