@@ -24,6 +24,8 @@ class CliSettings(BaseSettings):
         # case-insensitive matching it would be lowered to -h and collide with
         # --help, which argparse owns. The task's own spec has that conflict.
         case_sensitive=True,
+        # Show "-i str" in --help rather than "-i {str,null}".
+        cli_hide_none_type=True,
     )
 
     host: Annotated[
