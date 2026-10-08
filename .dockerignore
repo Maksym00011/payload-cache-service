@@ -1,0 +1,17 @@
+.git/
+.github/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# Never bake local state or secrets into an image.
+data/
+*.db
+.env
+# Tests are not part of the runtime image.
+tests/
+Makefile

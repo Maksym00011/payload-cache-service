@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # SQLite lives on the volume, so data survives a rebuild and the image
+      # itself stays read-only.
+      DATABASE_URL: sqlite+aiosqlite:////data/cache.db
+      LOG_LEVEL: INFO
+    volumes:
+      - cache-data:/data
+
+volumes:
+  cache-data:
