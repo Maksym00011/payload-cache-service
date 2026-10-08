@@ -19,10 +19,6 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
-    # Request limits, so one call cannot ask us to hash and store megabytes.
-    max_list_length: int = 1000
-    max_string_length: int = 4096
-
 
 @lru_cache
 def get_settings() -> Settings:
