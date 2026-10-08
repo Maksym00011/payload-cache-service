@@ -1,11 +1,19 @@
 """End to end tests over HTTP, with a fake transformer we can count."""
 
 import asyncio
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from uuid import uuid4
 
 from httpx import AsyncClient
 
-from tests.conftest import RecordingTransformer
+from tests.doubles import (
+    HangingTransformer,
+    RecordingTransformer,
+    ShortChangingTransformer,
+)
+
+ClientFactory = Callable[[object], AbstractAsyncContextManager[AsyncClient]]
 
 # The example straight out of the task description.
 SAMPLE_REQUEST = {
@@ -126,3 +134,29 @@ async def test_concurrent_identical_requests_produce_one_payload(
 
     assert {response.json()["id"] for response in responses} == {responses[0].json()["id"]}
     assert sum(response.status_code == 201 for response in responses) == 1
+
+
+async def test_a_request_over_the_total_size_limit_is_rejected(client: AsyncClient):
+    """Per-item limits alone would still let one call carry megabytes."""
+    big = "x" * 4000
+    response = await client.post("/payload", json={"list_1": [big] * 30, "list_2": [big] * 30})
+
+    assert response.status_code == 422
+    assert "characters" in response.text
+
+
+async def test_an_unresponsive_transformer_answers_504(make_client: ClientFactory):
+    async with make_client(HangingTransformer()) as client:
+        response = await client.post("/payload", json=SAMPLE_REQUEST)
+
+    assert response.status_code == 504
+
+
+async def test_a_transformer_breaking_its_contract_answers_502(
+    make_client: ClientFactory,
+):
+    """Wrong number of results is the upstream's fault, not a 500 on our side."""
+    async with make_client(ShortChangingTransformer()) as client:
+        response = await client.post("/payload", json=SAMPLE_REQUEST)
+
+    assert response.status_code == 502

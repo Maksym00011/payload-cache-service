@@ -1,6 +1,10 @@
 import asyncio
 
-from app.services.transformer import UppercaseTransformer
+import pytest
+
+from app.services.errors import TransformerTimeoutError
+from app.services.transformer import TimeoutTransformer, UppercaseTransformer
+from tests.doubles import HangingTransformer
 
 
 async def test_transform_many_uppercases_every_value():
@@ -39,3 +43,16 @@ async def test_latency_is_paid_once_per_batch(monkeypatch):
     await transformer.transform_many(["a", "b", "c"])
 
     assert sleeps == [0.2]
+
+
+async def test_the_timeout_wrapper_gives_up_on_a_hanging_transformer():
+    wrapped = TimeoutTransformer(HangingTransformer(), timeout_seconds=0.01)
+
+    with pytest.raises(TransformerTimeoutError):
+        await wrapped.transform_many(["a"])
+
+
+async def test_the_timeout_wrapper_passes_results_through():
+    wrapped = TimeoutTransformer(UppercaseTransformer(latency_seconds=0), timeout_seconds=1)
+
+    assert await wrapped.transform_many(["a"]) == ["A"]
