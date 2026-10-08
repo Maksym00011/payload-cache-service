@@ -10,9 +10,10 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.config import Settings
 from app.services.cache import TransformCache
 from app.services.payload import PayloadService
-from app.services.transformer import Transformer
+from app.services.transformer import TimeoutTransformer, Transformer
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -22,8 +23,14 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 def get_transformer(request: Request) -> Transformer:
+    """Wrap the configured transformer in the call timeout.
+
+    Applying it here rather than at startup means a transformer injected by a
+    test runs under the same policy as the real one.
+    """
+    settings: Settings = request.app.state.settings
     transformer: Transformer = request.app.state.transformer
-    return transformer
+    return TimeoutTransformer(transformer, settings.transformer_timeout_seconds)
 
 
 def get_payload_service(

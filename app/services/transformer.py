@@ -9,6 +9,8 @@ import asyncio
 from collections.abc import Sequence
 from typing import Protocol
 
+from app.services.errors import TransformerTimeoutError
+
 
 class Transformer(Protocol):
     """What the payload service needs from the external transformer."""
@@ -35,3 +37,24 @@ class UppercaseTransformer:
         # round trip once.
         await asyncio.sleep(self._latency_seconds)
         return [value.upper() for value in values]
+
+
+class TimeoutTransformer:
+    """Gives up on a slow transformer instead of holding the request open.
+
+    A hung external service would otherwise keep a request, a database session
+    and a pooled connection alive until the client disconnects.
+    """
+
+    def __init__(self, inner: Transformer, timeout_seconds: float) -> None:
+        self._inner = inner
+        self._timeout_seconds = timeout_seconds
+
+    async def transform_many(self, values: Sequence[str]) -> list[str]:
+        try:
+            async with asyncio.timeout(self._timeout_seconds):
+                return await self._inner.transform_many(values)
+        except TimeoutError as error:
+            raise TransformerTimeoutError(
+                f"the transformer did not answer within {self._timeout_seconds}s"
+            ) from error

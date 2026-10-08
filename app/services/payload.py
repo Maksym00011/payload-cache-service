@@ -17,6 +17,7 @@ from app.domain.fingerprint import payload_fingerprint
 from app.domain.interleave import interleave, render_output
 from app.schemas import PayloadCreate
 from app.services.cache import TransformCache
+from app.services.errors import TransformerError
 from app.services.transformer import Transformer
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,14 @@ class PayloadService:
             return cached
 
         transformed = await self._transformer.transform_many(missing)
-        fresh = dict(zip(missing, transformed, strict=True))
+        try:
+            fresh = dict(zip(missing, transformed, strict=True))
+        except ValueError as error:
+            # The upstream broke its contract, so this is a bad gateway rather
+            # than a bug on our side.
+            raise TransformerError(
+                f"asked the transformer for {len(missing)} values, got {len(transformed)}"
+            ) from error
         await self._cache.store_many(fresh)
         return cached | fresh
 

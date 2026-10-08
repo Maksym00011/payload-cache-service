@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     # Pretend the transformer is a slow remote service.
     transformer_latency_seconds: float = 0.05
 
+    # Upper bound on one transformer call, so a hung upstream cannot pin a
+    # request, a session and a pooled connection indefinitely.
+    transformer_timeout_seconds: float = 10.0
+
     log_level: str = "INFO"
 
 

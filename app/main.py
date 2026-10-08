@@ -7,12 +7,14 @@ database and a fake transformer without touching the environment.
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
 
 from app.api.routes import router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.session import build_engine, build_session_factory, create_tables
+from app.services.errors import TransformerError, TransformerTimeoutError
 from app.services.transformer import UppercaseTransformer
 
 
@@ -45,7 +47,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.transformer = UppercaseTransformer(settings.transformer_latency_seconds)
     app.include_router(router)
+    _register_error_handlers(app)
     return app
+
+
+def _register_error_handlers(app: FastAPI) -> None:
+    """A broken upstream is a gateway error, not an internal server error."""
+
+    @app.exception_handler(TransformerError)
+    async def handle_transformer_error(_request: Request, error: Exception) -> JSONResponse:
+        code = (
+            status.HTTP_504_GATEWAY_TIMEOUT
+            if isinstance(error, TransformerTimeoutError)
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        return JSONResponse(status_code=code, content={"detail": str(error)})
 
 
 app = create_app()
