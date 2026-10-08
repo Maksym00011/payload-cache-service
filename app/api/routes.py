@@ -2,7 +2,9 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
+from sqlalchemy import text as sql_text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api.deps import PayloadServiceDep
 from app.schemas import PayloadCreate, PayloadCreated, PayloadRead
@@ -10,8 +12,13 @@ from app.schemas import PayloadCreate, PayloadCreated, PayloadRead
 router = APIRouter()
 
 
-@router.get("/health", summary="Liveness probe")
-async def health() -> dict[str, str]:
+@router.get("/health", summary="Readiness probe")
+async def health(request: Request) -> dict[str, str]:
+    """Touch the database, so a probe cannot report "ok" while it is down."""
+    engine: AsyncEngine = request.app.state.engine
+    async with engine.connect() as connection:
+        await connection.execute(sql_text("SELECT 1"))
+
     return {"status": "ok"}
 
 
