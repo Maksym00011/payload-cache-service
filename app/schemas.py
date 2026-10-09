@@ -3,15 +3,17 @@
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Guardrails so one request cannot ask us to hash and store megabytes. These
 # live next to the contract they describe rather than in deployment settings.
 MAX_LIST_LENGTH = 1000
 MAX_STRING_LENGTH = 4096
 # Per-item limits alone would still allow 8 MB of text in one call, which we
-# would hash, transform and store twice. Cap the request as a whole.
-MAX_TOTAL_CHARACTERS = 200_000
+# would hash, transform and store twice. Cap the request as a whole, counted in
+# bytes rather than code points: a 200 000 character limit on non-ASCII text
+# would otherwise let four times as much through.
+MAX_TOTAL_BYTES = 200_000
 
 PayloadString = Annotated[str, Field(max_length=MAX_STRING_LENGTH)]
 PayloadList = Annotated[list[PayloadString], Field(min_length=1, max_length=MAX_LIST_LENGTH)]
@@ -19,6 +21,10 @@ PayloadList = Annotated[list[PayloadString], Field(min_length=1, max_length=MAX_
 
 class PayloadCreate(BaseModel):
     """Two lists of strings of the same length."""
+
+    # Reject unknown fields: a typo such as "list3" should be an error the
+    # caller sees, not a field we silently drop.
+    model_config = ConfigDict(extra="forbid")
 
     list_1: PayloadList
     list_2: PayloadList
@@ -31,11 +37,9 @@ class PayloadCreate(BaseModel):
 
     @model_validator(mode="after")
     def request_must_stay_within_the_size_limit(self) -> "PayloadCreate":
-        total = sum(map(len, self.list_1)) + sum(map(len, self.list_2))
-        if total > MAX_TOTAL_CHARACTERS:
-            raise ValueError(
-                f"the two lists together must not exceed {MAX_TOTAL_CHARACTERS} characters"
-            )
+        total = sum(len(value.encode("utf-8")) for value in (*self.list_1, *self.list_2))
+        if total > MAX_TOTAL_BYTES:
+            raise ValueError(f"the two lists together must not exceed {MAX_TOTAL_BYTES} bytes")
         return self
 
 
