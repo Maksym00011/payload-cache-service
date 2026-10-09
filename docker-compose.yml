@@ -10,6 +10,8 @@ services:
       LOG_LEVEL: INFO
     volumes:
       - cache-data:/data
+    # A crash should not take the service down until someone notices.
+    restart: unless-stopped
 
 volumes:
   cache-data:

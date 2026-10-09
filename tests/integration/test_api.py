@@ -7,7 +7,8 @@ from uuid import uuid4
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import Settings
 from app.main import create_app
@@ -242,7 +243,9 @@ async def test_health_fails_when_the_database_is_unreachable(settings: Settings)
             response = await client.get("/health")
         await broken.dispose()
 
-    assert response.status_code == 500
+    # 503, not 500: an unreachable database means "not ready", which is what a
+    # probe and a load balancer need to hear.
+    assert response.status_code == 503
 
 
 async def test_a_repeat_costs_one_query_and_no_writes(
@@ -272,3 +275,42 @@ async def test_a_repeat_costs_one_query_and_no_writes(
     kinds = [statement.lstrip().split(maxsplit=1)[0].upper() for statement in statements]
     assert kinds.count("SELECT") == 1
     assert "INSERT" not in kinds
+
+
+async def test_a_busy_database_answers_503_not_500(
+    settings: Settings, transformer: RecordingTransformer
+) -> None:
+    """SQLite allows one writer, so a burst can fail with "database is locked".
+    That is a retry, not a server fault."""
+    app = create_app(settings)
+    app.state.transformer = transformer
+
+    async with app.router.lifespan_context(app):
+        broken = create_async_engine("sqlite+aiosqlite:////nonexistent-dir/cache.db")
+        app.state.session_factory = async_sessionmaker(
+            broken, class_=AsyncSession, expire_on_commit=False
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
+        ) as client:
+            response = await client.post("/payload", json=SAMPLE_REQUEST)
+        await broken.dispose()
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "1"
+
+
+async def test_an_oversized_body_is_refused_before_it_is_parsed(
+    client: AsyncClient,
+) -> None:
+    """The schema limit only applies after decoding, so a large body used to be
+    held in memory before being rejected."""
+    body = "x" * (600 * 1024)
+
+    response = await client.post(
+        "/payload", content=body, headers={"content-type": "application/json"}
+    )
+
+    assert response.status_code == 413
+    assert "must not exceed" in response.text

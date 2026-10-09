@@ -23,6 +23,11 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # Ceiling on the request body, checked before anything is parsed. The
+    # largest request the schema allows is about 210 KB, so this leaves room
+    # without letting a 50 MB body be decoded into memory first.
+    max_request_bytes: int = 512 * 1024
+
 
 @lru_cache
 def get_settings() -> Settings:

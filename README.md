@@ -59,8 +59,10 @@ Sending the same input again returns the **same id** with `200` and
 | 201 | a new payload was generated |
 | 200 | an identical payload already existed, its id is reused |
 | 404 | no payload with that id |
+| 413 | the request body is larger than the ceiling, refused before parsing |
 | 422 | lists of different length, empty lists, unknown fields, or a request over the size limit |
 | 502 | the transformer broke its contract (wrong count, or a value that is not a string) |
+| 503 | the database is busy — SQLite has one writer, so a write burst is a retry |
 | 504 | the transformer did not answer in time |
 
 Every one of these is declared in the OpenAPI schema, so `/docs` shows the
@@ -260,14 +262,22 @@ Deliberate choices:
   writes only to a mounted volume.
 - `/health` touches the database under a 5 second timeout, so a probe neither
   lies about a dead database nor hangs instead of failing.
+- The request body is capped at 512 KB and refused on `Content-Length` before
+  anything is parsed. Without it a 57 MB body took the process from 65 MB to
+  243 MB of resident memory before the schema rejected it.
+- A busy database answers 503 with `Retry-After` rather than 500: SQLite allows
+  one writer, so a burst of writes is a retry, not a server fault. Measured
+  with 200 concurrent requests of 400 new strings each: 176 succeeded, 24 got
+  503, no unhandled exceptions, and `/health` stayed 200 throughout.
+- Application and uvicorn logs share one format, so the stream can be parsed.
 
 Known gaps, deliberately left to the deployment:
 
 - **No authentication and no rate limiting.** Anyone who can reach the service
   can fill the cache table. This belongs in a gateway in front of it.
-- **No body size limit at the ASGI layer.** uvicorn has none; the schema limit
-  applies only after the JSON has been parsed. A reverse proxy should cap the
-  request body.
+- **A chunked request carries no `Content-Length`**, so the body ceiling cannot
+  be applied to it before reading. A reverse proxy or an ASGI server limit is
+  still the complete answer; the in-process check covers the ordinary case.
 - **The cache grows without bound.** No TTL and no eviction. A production
   deployment needs a job that deletes old entries.
 - **A payload id is a bearer capability.** Anyone holding the UUID can read the
@@ -286,7 +296,7 @@ Known gaps, deliberately left to the deployment:
 make test
 ```
 
-71 tests. The ones that matter most:
+76 tests. The ones that matter most:
 
 - `test_render_output_matches_the_example_from_the_task` — the literal example
   from the task description.

@@ -7,7 +7,8 @@ service has no business managing log files itself.
 import logging
 
 # uvicorn gives these loggers their own handlers and stops propagation, so the
-# access log would otherwise keep uvicorn's format next to ours.
+# access log would otherwise sit in uvicorn's own format ("INFO:     ...")
+# next to ours in the same stream.
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
@@ -17,6 +18,7 @@ def configure_logging(level: str) -> None:
         format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
         force=True,
     )
+
     # Route uvicorn through the root handler, so one format wins.
     for name in _UVICORN_LOGGERS:
         uvicorn_logger = logging.getLogger(name)

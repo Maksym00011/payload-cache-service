@@ -5,12 +5,14 @@ database and a fake transformer without touching the environment.
 """
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.api.routes import router
 from app.core.config import Settings, get_settings
@@ -60,8 +62,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     transformer: Transformer = UppercaseTransformer(settings.transformer_latency_seconds)
     app.state.transformer = transformer
     app.include_router(router)
+    _register_body_limit(app, settings.max_request_bytes)
     _register_error_handlers(app)
     return app
+
+
+def _register_body_limit(app: FastAPI, max_bytes: int) -> None:
+    """Refuse an oversized body before it is parsed.
+
+    The schema limit only applies after the JSON has been decoded, so a 50 MB
+    body was being held in memory before being rejected. The README used to
+    point at a reverse proxy for this, but compose publishes the port directly,
+    so the service has to defend itself.
+
+    A chunked request carries no Content-Length and is not caught here; a proxy
+    or an ASGI server limit is still the complete answer.
+    """
+
+    @app.middleware("http")
+    async def limit_body(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        declared = request.headers.get("content-length")
+        if declared is not None and declared.isdigit() and int(declared) > max_bytes:
+            return JSONResponse(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                content={"detail": f"the request body must not exceed {max_bytes} bytes"},
+            )
+
+        return await call_next(request)
 
 
 def _register_error_handlers(app: FastAPI) -> None:
@@ -82,6 +111,23 @@ def _register_error_handlers(app: FastAPI) -> None:
                 if timed_out
                 else "the transformer answered with something unusable"
             },
+        )
+
+    @app.exception_handler(OperationalError)
+    @app.exception_handler(PoolTimeoutError)
+    async def handle_database_pressure(_request: Request, error: Exception) -> JSONResponse:
+        """Busy is not broken.
+
+        SQLite allows a single writer, and the connection pool is finite, so a
+        burst of writes can fail with "database is locked" or a pool timeout.
+        Both mean "try again", which is 503 and not the 500 these used to
+        become.
+        """
+        logger.warning("database under pressure: %s", error)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "the service is busy, please retry"},
+            headers={"Retry-After": "1"},
         )
 
     @app.exception_handler(RequestValidationError)

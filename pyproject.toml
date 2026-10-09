@@ -4,20 +4,22 @@ version = "0.1.0"
 description = "FastAPI microservice that caches transformed strings and interleaves them into payloads"
 readme = "README.md"
 requires-python = ">=3.12"
+# Floors are the versions actually tested. uv.lock pins the exact set, and
+# CI installs with --locked, so a drift between the two fails the build.
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.32.0",
-    "sqlmodel>=0.0.22",
+    "fastapi>=0.143.0",
+    "uvicorn[standard]>=0.54.0",
+    "sqlmodel>=0.0.48",
     # SQLModel pulls in SQLAlchemy, but not its asyncio extra: without
     # greenlet the async engine refuses to start.
-    "sqlalchemy[asyncio]>=2.0.36",
-    "pydantic-settings>=2.6.0",
+    "sqlalchemy[asyncio]>=2.1.4",
+    "pydantic-settings>=2.15.0",
     # Async drivers: SQLite is the zero-setup default, PostgreSQL the
     # production path. Both are supported through the same DATABASE_URL.
     "aiosqlite>=0.20.0",
     "asyncpg>=0.30.0",
     # Used by the CLI, and by the test suite to drive the ASGI app directly.
-    "httpx>=0.28.0",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]
