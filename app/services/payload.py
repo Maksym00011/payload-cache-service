@@ -93,17 +93,31 @@ class PayloadService:
         if not missing:
             return cached
 
+        # Give the pooled connection back before the slow remote call. Holding
+        # it would cap concurrent transformer calls at the pool size, and the
+        # health probe competes for the same pool exactly when the service is
+        # busy. Nothing is lost: the read above is already in `cached`.
+        await self._session.rollback()
+
         transformed = await self._transformer.transform_many(missing)
-        try:
-            fresh = dict(zip(missing, transformed, strict=True))
-        except ValueError as error:
-            # The upstream broke its contract, so this is a bad gateway rather
-            # than a bug on our side.
-            raise TransformerError(
-                f"asked the transformer for {len(missing)} values, got {len(transformed)}"
-            ) from error
+        self._check_transformer_contract(missing, transformed)
+        fresh = dict(zip(missing, transformed, strict=True))
         await self._cache.store_many(fresh)
         return cached | fresh
+
+    @staticmethod
+    def _check_transformer_contract(asked: list[str], answered: list[str]) -> None:
+        """A broken upstream is a bad gateway, not an internal error.
+
+        Without the type check, a null slips through to the database and
+        surfaces as an unhandled integrity error instead of a 502.
+        """
+        if len(answered) != len(asked):
+            raise TransformerError(
+                f"asked the transformer for {len(asked)} values, got {len(answered)}"
+            )
+        if not all(isinstance(value, str) for value in answered):
+            raise TransformerError("the transformer returned a value that is not a string")
 
     async def _find_by_fingerprint(self, fingerprint: str) -> Payload | None:
         statement = select(Payload).where(col(Payload.fingerprint) == fingerprint)
