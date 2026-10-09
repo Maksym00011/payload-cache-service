@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.sql import Executable
+from sqlalchemy.sql.dml import Insert
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -18,7 +18,7 @@ from app.db.models import TransformedString
 from app.domain.fingerprint import hash_source
 
 
-def build_conflict_free_insert(dialect: str, values: list[dict[str, Any]]) -> Executable:
+def build_conflict_free_insert(dialect: str, values: list[dict[str, Any]]) -> Insert:
     """Build an INSERT that ignores rows another writer already stored.
 
     ON CONFLICT DO NOTHING is dialect specific in SQLAlchemy, so both
@@ -48,9 +48,13 @@ class TransformCache:
             return {}
 
         hashes = [hash_source(source) for source in sources]
-        statement = select(TransformedString).where(col(TransformedString.source_hash).in_(hashes))
+        # Two columns rather than whole rows: up to 2000 entities per request
+        # would be built only to read two fields off each.
+        statement = select(TransformedString.source, TransformedString.transformed).where(
+            col(TransformedString.source_hash).in_(hashes)
+        )
         rows = (await self._session.exec(statement)).all()
-        return {row.source: row.transformed for row in rows}
+        return dict(rows)
 
     async def store_many(self, transforms: Mapping[str, str]) -> None:
         """Store new results, ignoring any a concurrent request already wrote.
@@ -70,6 +74,4 @@ class TransformCache:
             for source, transformed in transforms.items()
         ]
         statement = build_conflict_free_insert(self._session.get_bind().dialect.name, values)
-        # SQLModel asks for exec() over execute(), but types it for SELECT only,
-        # hence the ignore on an INSERT.
-        await self._session.exec(statement)  # type: ignore[call-overload]
+        await self._session.exec(statement)
