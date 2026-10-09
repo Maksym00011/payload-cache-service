@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# Read-only token: nothing here publishes or writes back to the repository.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -12,16 +16,36 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --frozen
+      # --locked, not --frozen: this must fail if uv.lock and pyproject drift
+      # apart, which --frozen accepts silently.
+      - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy app cli
       - run: uv run pytest
 
-  # The task asks for a dockerised service, so a broken image should fail CI
-  # rather than be discovered by whoever deploys it.
+  # The task asks for a dockerised service, so CI builds the image and runs it.
+  # A container that builds but cannot serve is not a working deliverable.
   image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: docker build --tag payload-cache-service:ci .
+      - name: Start the container and exercise the API
+        run: |
+          docker run --detach --name api --publish 8000:8000 payload-cache-service:ci
+          for _ in $(seq 1 30); do
+            curl --silent --fail http://localhost:8000/health && break
+            sleep 1
+          done
+          curl --silent --fail http://localhost:8000/health
+          id=$(curl --silent --fail -X POST http://localhost:8000/payload \
+            -H 'content-type: application/json' \
+            -d '{"list_1":["first string"],"list_2":["other string"]}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          output=$(curl --silent --fail "http://localhost:8000/payload/$id")
+          echo "$output"
+          echo "$output" | grep -q 'FIRST STRING, OTHER STRING'
+      - name: Container logs
+        if: always()
+        run: docker logs api
