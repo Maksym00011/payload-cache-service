@@ -1,16 +1,18 @@
 .git/
 .github/
 .venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+# Patterns in .dockerignore are matched from the context root, so these need
+# the ** prefix to catch caches inside app/ and cli/ as well.
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
 .coverage
 htmlcov/
 # Never bake local state or secrets into an image.
 data/
-*.db
+**/*.db
 .env
 # Tests are not part of the runtime image.
 tests/

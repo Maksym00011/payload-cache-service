@@ -17,9 +17,13 @@ RUN pip install --no-cache-dir uv==0.12.23
 WORKDIR /app
 
 # Dependencies first: editing application code must not re-resolve them.
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
+# README.md belongs here rather than above: the project build reads it, so
+# keeping it out of the dependency layer stops a docs edit reinstalling
+# everything.
+COPY README.md ./
 COPY app ./app
 COPY cli ./cli
 RUN uv sync --frozen --no-dev
@@ -39,7 +43,9 @@ RUN useradd --create-home --uid 1000 service \
     && chown service:service /data
 
 WORKDIR /app
-COPY --from=builder --chown=service:service /app /app
+# No --chown: the files stay owned by root, so the serving user can read and
+# execute its code but not rewrite it. Only /data is writable.
+COPY --from=builder /app /app
 
 USER service
 VOLUME ["/data"]
