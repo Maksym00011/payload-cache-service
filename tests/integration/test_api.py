@@ -139,10 +139,17 @@ async def test_concurrent_identical_requests_produce_one_payload(
 async def test_a_request_over_the_total_size_limit_is_rejected(client: AsyncClient):
     """Per-item limits alone would still let one call carry megabytes."""
     big = "x" * 4000
-    response = await client.post("/payload", json={"list_1": [big] * 30, "list_2": [big] * 30})
+    body = {"list_1": [big] * 30, "list_2": [big] * 30}
+
+    response = await client.post("/payload", json=body)
 
     assert response.status_code == 422
-    assert "characters" in response.text
+    assert "must not exceed" in response.text
+    # The rejected request must not come back with the answer. At the size
+    # limit that would mean echoing hundreds of kilobytes to the caller, and
+    # into the access log with it.
+    assert big not in response.text
+    assert len(response.content) < 1000
 
 
 async def test_an_unresponsive_transformer_answers_504(make_client: ClientFactory):
