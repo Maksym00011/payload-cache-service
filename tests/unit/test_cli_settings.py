@@ -14,7 +14,7 @@ def parse(*args: str) -> CliSettings:
     return CliSettings(_cli_parse_args=list(args))
 
 
-def test_short_flags():
+def test_short_flags() -> None:
     settings = parse("-H", "http://service:9000", "-r", "3", "-i", "payload.json")
 
     assert str(settings.host) == "http://service:9000/"
@@ -22,14 +22,14 @@ def test_short_flags():
     assert settings.input_file == "payload.json"
 
 
-def test_long_flags():
+def test_long_flags() -> None:
     settings = parse("--host", "http://service:9000", "--repeat", "2", "--json", SAMPLE_JSON)
 
     assert settings.repeat == 2
     assert settings.json_payload == SAMPLE_JSON
 
 
-def test_defaults_point_at_localhost_and_stdout():
+def test_defaults_point_at_localhost_and_stdout() -> None:
     settings = parse("--json", SAMPLE_JSON)
 
     assert str(settings.host) == "http://localhost:8000/"
@@ -37,33 +37,33 @@ def test_defaults_point_at_localhost_and_stdout():
     assert settings.output_file == "-"
 
 
-def test_a_dash_means_stdin_or_stdout():
+def test_a_dash_means_stdin_or_stdout() -> None:
     settings = parse("-i", "-", "-o", "-")
 
     assert settings.input_file == "-"
     assert settings.output_file == "-"
 
 
-def test_input_and_json_together_are_rejected():
+def test_input_and_json_together_are_rejected() -> None:
     with pytest.raises(ValidationError, match="exactly one"):
         parse("-i", "payload.json", "-j", SAMPLE_JSON)
 
 
-def test_neither_input_nor_json_is_rejected():
+def test_neither_input_nor_json_is_rejected() -> None:
     with pytest.raises(ValidationError, match="exactly one"):
         parse("-r", "2")
 
 
-def test_repeat_below_one_is_rejected():
+def test_repeat_below_one_is_rejected() -> None:
     with pytest.raises(ValidationError):
         parse("-j", SAMPLE_JSON, "-r", "0")
 
 
-def test_a_host_that_is_not_a_url_is_rejected():
+def test_a_host_that_is_not_a_url_is_rejected() -> None:
     with pytest.raises(ValidationError):
         parse("-j", SAMPLE_JSON, "-H", "not a url")
 
 
-def test_payload_lists_must_have_the_same_length():
+def test_payload_lists_must_have_the_same_length() -> None:
     with pytest.raises(ValidationError, match="same length"):
         PayloadRequest(list_1=["a"], list_2=["x", "y"])

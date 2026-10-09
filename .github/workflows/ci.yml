@@ -21,7 +21,7 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run mypy app cli
+      - run: uv run mypy app cli tests
       - run: uv run pytest
 
   # The task asks for a dockerised service, so CI builds the image and runs it.

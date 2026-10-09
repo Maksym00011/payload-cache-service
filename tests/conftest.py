@@ -13,6 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.config import Settings
 from app.db.session import build_engine, build_session_factory, create_tables
 from app.main import create_app
+from app.services.transformer import Transformer
 from tests.doubles import RecordingTransformer
 
 
@@ -70,11 +71,11 @@ def transformer() -> RecordingTransformer:
 @pytest.fixture
 def make_client(
     settings: Settings,
-) -> Callable[[object], AbstractAsyncContextManager[AsyncClient]]:
+) -> Callable[[Transformer], AbstractAsyncContextManager[AsyncClient]]:
     """Build a client for an app wired to the transformer a test wants."""
 
     @asynccontextmanager
-    async def build(transformer: object) -> AsyncIterator[AsyncClient]:
+    async def build(transformer: Transformer) -> AsyncIterator[AsyncClient]:
         app = create_app(settings)
         app.state.transformer = transformer
         async with (
@@ -88,7 +89,7 @@ def make_client(
 
 @pytest.fixture
 async def client(
-    make_client: Callable[[object], AbstractAsyncContextManager[AsyncClient]],
+    make_client: Callable[[Transformer], AbstractAsyncContextManager[AsyncClient]],
     transformer: RecordingTransformer,
 ) -> AsyncIterator[AsyncClient]:
     async with make_client(transformer) as client:

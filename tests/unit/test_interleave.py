@@ -3,20 +3,20 @@ import pytest
 from app.domain.interleave import interleave, render_output
 
 
-def test_interleave_alternates_starting_with_the_first_list():
+def test_interleave_alternates_starting_with_the_first_list() -> None:
     assert interleave(["a", "b"], ["x", "y"]) == ["a", "x", "b", "y"]
 
 
-def test_interleave_accepts_empty_lists():
+def test_interleave_accepts_empty_lists() -> None:
     assert interleave([], []) == []
 
 
-def test_interleave_rejects_lists_of_different_length():
+def test_interleave_rejects_lists_of_different_length() -> None:
     with pytest.raises(ValueError, match="same length"):
         interleave(["a"], ["x", "y"])
 
 
-def test_render_output_matches_the_example_from_the_task():
+def test_render_output_matches_the_example_from_the_task() -> None:
     values = interleave(
         ["FIRST STRING", "SECOND STRING", "THIRD STRING"],
         ["OTHER STRING", "ANOTHER STRING", "LAST STRING"],

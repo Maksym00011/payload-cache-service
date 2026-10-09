@@ -21,7 +21,7 @@ SAMPLE_OUTPUT = (
 
 async def test_repeating_a_payload_calls_the_transformer_once(
     settings: Settings, transformer: RecordingTransformer
-):
+) -> None:
     """What --repeat is for: the same id every time, one call to the upstream."""
     app = create_app(settings)
     app.state.transformer = transformer
@@ -39,7 +39,7 @@ async def test_repeating_a_payload_calls_the_transformer_once(
 
 async def test_only_the_first_iteration_reports_a_creation(
     settings: Settings, transformer: RecordingTransformer
-):
+) -> None:
     app = create_app(settings)
     app.state.transformer = transformer
     cli_settings = CliSettings(_cli_parse_args=["-j", json.dumps(SAMPLE), "-r", "2"])

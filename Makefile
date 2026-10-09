@@ -13,7 +13,7 @@ fmt:
 	uv run ruff check --fix .
 
 typecheck:
-	uv run mypy app cli
+	uv run mypy app cli tests
 
 test:
 	uv run pytest
