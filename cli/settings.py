@@ -7,19 +7,18 @@ before a single request goes out.
 from typing import Annotated, Self
 
 from pydantic import AliasChoices, BaseModel, Field, HttpUrl, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 # Both --input and --output accept "-" to mean stdin / stdout.
 STDIO = "-"
 
 
 class CliSettings(BaseSettings):
-    """Arguments for cache-cli; each one can also come from the environment."""
+    """Arguments for cache-cli, taken from the command line only."""
 
     model_config = SettingsConfigDict(
         cli_parse_args=True,
         cli_prog_name="cache-cli",
-        env_prefix="CACHE_CLI_",
         # Keeps the short flag for --host as -H. With the default
         # case-insensitive matching it would be lowered to -h and collide with
         # --help, which argparse owns. The task's own spec has that conflict.
@@ -27,6 +26,25 @@ class CliSettings(BaseSettings):
         # Show "-i str" in --help rather than "-i {str,null}".
         cli_hide_none_type=True,
     )
+
+    # The signature is fixed by pydantic-settings; we use one source of five.
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],  # noqa: ARG003
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+        dotenv_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+        file_secret_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Command line only, no environment.
+
+        The short flags are declared as aliases, and the environment source
+        matches aliases too, so a stray one-letter variable such as `H` would
+        silently override --host. A test client is invoked by hand; dropping
+        the environment is cheaper than making every alias collision safe.
+        """
+        return (init_settings,)
 
     host: Annotated[
         HttpUrl,
