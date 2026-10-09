@@ -44,7 +44,7 @@ async def create_payload(
     service: PayloadServiceDep,
     response: Response,
 ) -> PayloadCreated:
-    payload, created = await service.create(request)
+    payload, created = await service.create(request.list_1, request.list_2)
 
     if not created:
         # A repeat is not a creation, so it answers 200 rather than 201.

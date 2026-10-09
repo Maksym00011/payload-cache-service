@@ -6,6 +6,7 @@ query, and whatever is left over is sent to the transformer in a single call.
 """
 
 import logging
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -15,7 +16,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.db.models import Payload
 from app.domain.fingerprint import payload_fingerprint
 from app.domain.interleave import interleave, render_output
-from app.schemas import PayloadCreate
 from app.services.cache import TransformCache
 from app.services.errors import TransformerError
 from app.services.transformer import Transformer
@@ -34,9 +34,13 @@ class PayloadService:
         self._cache = cache
         self._transformer = transformer
 
-    async def create(self, request: PayloadCreate) -> tuple[Payload, bool]:
-        """Return the payload for this input, and whether it was created now."""
-        fingerprint = payload_fingerprint(request.list_1, request.list_2)
+    async def create(self, list_1: Sequence[str], list_2: Sequence[str]) -> tuple[Payload, bool]:
+        """Return the payload for this input, and whether it was created now.
+
+        Takes the two lists rather than the request model, so the service does
+        not depend on the HTTP layer's contract.
+        """
+        fingerprint = payload_fingerprint(list_1, list_2)
 
         # Same input as before: hand back the same id and touch nothing else.
         existing = await self._find_by_fingerprint(fingerprint)
@@ -44,14 +48,12 @@ class PayloadService:
             logger.info("payload %s reused for a repeated request", existing.id)
             return existing, False
 
-        transforms = await self._resolve_transforms([*request.list_1, *request.list_2])
-        output = render_output(
-            transforms[value] for value in interleave(request.list_1, request.list_2)
-        )
+        transforms = await self._resolve_transforms([*list_1, *list_2])
+        output = render_output(transforms[value] for value in interleave(list_1, list_2))
 
         payload = Payload(
             fingerprint=fingerprint,
-            source_lists={"list_1": list(request.list_1), "list_2": list(request.list_2)},
+            source_lists={"list_1": list(list_1), "list_2": list(list_2)},
             output=output,
         )
         self._session.add(payload)
