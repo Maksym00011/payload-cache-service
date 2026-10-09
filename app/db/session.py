@@ -54,6 +54,9 @@ def build_engine(settings: Settings) -> AsyncEngine:
         # Discard pooled connections the database closed behind our back,
         # instead of failing the first query after an idle period.
         pool_pre_ping=True,
+        # Without this, a failed statement is logged with its bound
+        # parameters, which here are the user's payload strings.
+        hide_parameters=True,
     )
     if is_sqlite:
         _apply_sqlite_pragmas(engine)
