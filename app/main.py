@@ -17,7 +17,7 @@ from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.session import build_engine, build_session_factory, create_tables
 from app.services.errors import TransformerError, TransformerTimeoutError
-from app.services.transformer import UppercaseTransformer
+from app.services.transformer import Transformer, UppercaseTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
-    app.state.transformer = UppercaseTransformer(settings.transformer_latency_seconds)
+    # Annotated so the type checker verifies the implementation against the
+    # Protocol; app.state itself is untyped.
+    transformer: Transformer = UppercaseTransformer(settings.transformer_latency_seconds)
+    app.state.transformer = transformer
     app.include_router(router)
     _register_error_handlers(app)
     return app

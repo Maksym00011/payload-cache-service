@@ -21,18 +21,12 @@ class Transformer(Protocol):
 
 
 class UppercaseTransformer:
-    """Stand-in for the real service: uppercases the strings, slowly.
-
-    `calls` counts round trips. The tests assert on it to prove the cache
-    really prevents repeated work.
-    """
+    """Stand-in for the real service: uppercases the strings, slowly."""
 
     def __init__(self, latency_seconds: float = 0.05) -> None:
         self._latency_seconds = latency_seconds
-        self.calls = 0
 
     async def transform_many(self, values: Sequence[str]) -> list[str]:
-        self.calls += 1
         # One sleep per call, not per value: a batch endpoint pays the network
         # round trip once.
         await asyncio.sleep(self._latency_seconds)
