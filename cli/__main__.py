@@ -15,12 +15,17 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-import cli.client as client_module
+from cli.client import CacheClient
 from cli.settings import STDIO, CliSettings, PayloadRequest
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_BAD_USAGE = 2
+
+# Deliberately longer than the service's own transformer timeout, so a slow
+# upstream surfaces as the service's 504 rather than as a client-side timeout
+# that says nothing about the cause.
+CLIENT_TIMEOUT_SECONDS = 30.0
 
 
 def load_request(settings: CliSettings) -> PayloadRequest:
@@ -35,24 +40,48 @@ def load_request(settings: CliSettings) -> PayloadRequest:
     return PayloadRequest.model_validate_json(raw)
 
 
+def describe(error: Exception) -> str:
+    """Name the exception type: several httpx errors stringify to nothing."""
+    message = str(error)
+    return f"{type(error).__name__}: {message}" if message else type(error).__name__
+
+
 async def run(
     settings: CliSettings,
     request: PayloadRequest,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
+    """Send the payload `--repeat` times and report every iteration.
+
+    A failure stops the loop but keeps the iterations that already succeeded:
+    with --repeat they are the measurement the run was made for.
+    """
     body = request.model_dump()
     iterations: list[dict[str, Any]] = []
     output = ""
+    error: str | None = None
 
-    async with client_module.CacheClient(str(settings.host), transport=transport) as client:
+    async with CacheClient(
+        str(settings.host), timeout_seconds=CLIENT_TIMEOUT_SECONDS, transport=transport
+    ) as client:
         for number in range(1, settings.repeat + 1):
-            started = perf_counter()
-            created = await client.create(body)
-            post_ms = (perf_counter() - started) * 1000
+            try:
+                started = perf_counter()
+                created = await client.create(body)
+                post_ms = (perf_counter() - started) * 1000
 
-            started = perf_counter()
-            output = await client.read(created.id)
-            get_ms = (perf_counter() - started) * 1000
+                started = perf_counter()
+                output = await client.read(created.id)
+                get_ms = (perf_counter() - started) * 1000
+            except httpx.HTTPStatusError as failure:
+                error = (
+                    f"iteration {number}: the service answered "
+                    f"{failure.response.status_code}: {failure.response.text[:200]}"
+                )
+                break
+            except httpx.HTTPError as failure:
+                error = f"iteration {number}: {describe(failure)}"
+                break
 
             iterations.append(
                 {
@@ -65,7 +94,7 @@ async def run(
                 }
             )
 
-    return {
+    report: dict[str, Any] = {
         "host": str(settings.host),
         "repeat": settings.repeat,
         "output": output,
@@ -74,10 +103,14 @@ async def run(
             # One id across every iteration is the point: the service reuses it.
             "unique_payload_ids": len({step["payload_id"] for step in iterations}),
             "payloads_created": sum(1 for step in iterations if step["created"]),
-            "fastest_post_ms": min(step["post_ms"] for step in iterations),
-            "slowest_post_ms": max(step["post_ms"] for step in iterations),
+            "fastest_post_ms": min((step["post_ms"] for step in iterations), default=None),
+            "slowest_post_ms": max((step["post_ms"] for step in iterations), default=None),
         },
     }
+    if error is not None:
+        report["error"] = error
+
+    return report
 
 
 def write_report(settings: CliSettings, report: dict[str, Any]) -> None:
@@ -102,19 +135,20 @@ def main() -> int:
     try:
         request = load_request(settings)
     except (OSError, ValidationError) as error:
-        return fail(str(error), EXIT_BAD_USAGE)
+        return fail(describe(error), EXIT_BAD_USAGE)
+
+    report = asyncio.run(run(settings, request))
 
     try:
-        report = asyncio.run(run(settings, request))
-    except httpx.HTTPStatusError as error:
-        return fail(
-            f"the service answered {error.response.status_code}: {error.response.text}",
-            EXIT_FAILURE,
-        )
-    except httpx.HTTPError as error:
-        return fail(f"could not reach {settings.host}: {error}", EXIT_FAILURE)
+        write_report(settings, report)
+    except OSError as error:
+        # The run is already paid for, so print the report rather than lose it.
+        sys.stdout.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+        return fail(f"could not write {settings.output_file}: {error}", EXIT_FAILURE)
 
-    write_report(settings, report)
+    if "error" in report:
+        return fail(report["error"], EXIT_FAILURE)
+
     return EXIT_OK
 
 
