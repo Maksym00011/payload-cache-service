@@ -1,17 +1,44 @@
 """HTTP client for the caching service."""
 
-from dataclasses import dataclass
 from types import TracebackType
 from uuid import UUID
 
 import httpx
+from pydantic import BaseModel, ValidationError
 
 
-@dataclass(frozen=True)
-class CreatedPayload:
+class UnexpectedResponseError(Exception):
+    """The service answered with something this client cannot read.
+
+    Anything can sit between the client and the service — a proxy, a login
+    page, a different service on the same port — so a 200 is not a promise that
+    the body is the payload API's.
+    """
+
+
+class CreatedPayload(BaseModel):
     id: UUID
     created: bool
     message: str
+
+
+class PayloadOutput(BaseModel):
+    output: str
+
+
+def _parse[ModelT: BaseModel](model: type[ModelT], response: httpx.Response, what: str) -> ModelT:
+    """Read the body as `model`, or say plainly that it is not ours.
+
+    A 2xx is no promise that the body came from this API: a proxy, a login page
+    or another service on the same port can answer too.
+    """
+    try:
+        return model.model_validate_json(response.content)
+    except ValidationError as error:
+        raise UnexpectedResponseError(
+            f"{what} answered {response.status_code} with a body this client "
+            f"cannot read: {response.text[:120]!r}"
+        ) from error
 
 
 class CacheClient:
@@ -41,10 +68,9 @@ class CacheClient:
     async def create(self, body: dict[str, list[str]]) -> CreatedPayload:
         response = await self._client.post("/payload", json=body)
         response.raise_for_status()
-        data = response.json()
-        return CreatedPayload(id=UUID(data["id"]), created=data["created"], message=data["message"])
+        return _parse(CreatedPayload, response, "POST /payload")
 
     async def read(self, payload_id: UUID) -> str:
         response = await self._client.get(f"/payload/{payload_id}")
         response.raise_for_status()
-        return str(response.json()["output"])
+        return _parse(PayloadOutput, response, f"GET /payload/{payload_id}").output

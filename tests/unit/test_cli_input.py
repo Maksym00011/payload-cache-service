@@ -116,3 +116,16 @@ def test_a_failed_iteration_is_reported_and_exits_with_one(
 
     assert main() == 1
     assert "ConnectError" in capsys.readouterr().err
+
+
+def test_a_file_that_is_not_utf8_exits_with_two(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A UnicodeDecodeError is a ValueError, not an OSError, so it used to
+    escape as a traceback."""
+    broken = tmp_path / "payload.json"
+    broken.write_bytes(b"\xff\xfe\x00bad")
+    monkeypatch.setattr("sys.argv", ["cache-cli", "-i", str(broken)])
+
+    assert main() == 2
+    assert "UnicodeDecodeError" in capsys.readouterr().err

@@ -2,6 +2,7 @@
 
 import json
 
+import httpx
 from httpx import ASGITransport
 
 from app.core.config import Settings
@@ -48,3 +49,37 @@ async def test_only_the_first_iteration_reports_a_creation(
         report = await run(cli_settings, PayloadRequest(**SAMPLE), transport=ASGITransport(app=app))
 
     assert [step["created"] for step in report["iterations"]] == [True, False]
+
+
+async def test_a_body_the_client_cannot_read_is_reported_not_raised() -> None:
+    """Something other than the service can answer on that port: a proxy, a
+    login page. The report must survive it."""
+
+    def answer_with_html(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>proxy page</html>")
+
+    settings = CliSettings(_cli_parse_args=["-j", json.dumps(SAMPLE), "-r", "3"])
+
+    report = await run(
+        settings,
+        PayloadRequest(**SAMPLE),
+        transport=httpx.MockTransport(answer_with_html),
+    )
+
+    assert report["iterations"] == []
+    assert "cannot read" in report["error"]
+
+
+async def test_a_body_with_the_wrong_shape_is_reported_too() -> None:
+    def answer_with_other_json(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"unexpected": "shape"})
+
+    settings = CliSettings(_cli_parse_args=["-j", json.dumps(SAMPLE)])
+
+    report = await run(
+        settings,
+        PayloadRequest(**SAMPLE),
+        transport=httpx.MockTransport(answer_with_other_json),
+    )
+
+    assert "cannot read" in report["error"]

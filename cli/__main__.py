@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from cli.client import CacheClient
+from cli.client import CacheClient, UnexpectedResponseError
 from cli.settings import STDIO, CliSettings, PayloadRequest
 
 EXIT_OK = 0
@@ -79,7 +79,7 @@ async def run(
                     f"{failure.response.status_code}: {failure.response.text[:200]}"
                 )
                 break
-            except httpx.HTTPError as failure:
+            except (httpx.HTTPError, UnexpectedResponseError) as failure:
                 error = f"iteration {number}: {describe(failure)}"
                 break
 
@@ -134,7 +134,7 @@ def main() -> int:
 
     try:
         request = load_request(settings)
-    except (OSError, ValidationError) as error:
+    except (OSError, ValueError) as error:
         return fail(describe(error), EXIT_BAD_USAGE)
 
     report = asyncio.run(run(settings, request))
