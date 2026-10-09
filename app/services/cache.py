@@ -18,6 +18,21 @@ from app.db.models import TransformedString
 from app.domain.fingerprint import hash_source
 
 
+def build_conflict_free_insert(dialect: str, values: list[dict[str, Any]]) -> Executable:
+    """Build an INSERT that ignores rows another writer already stored.
+
+    ON CONFLICT DO NOTHING is dialect specific in SQLAlchemy, so both
+    supported dialects are spelled out. The dialect is an argument rather than
+    read from a session, so each branch can be tested without that server.
+    """
+    if dialect == "sqlite":
+        return sqlite_insert(TransformedString).values(values).on_conflict_do_nothing()
+    if dialect == "postgresql":
+        return postgres_insert(TransformedString).values(values).on_conflict_do_nothing()
+
+    raise RuntimeError(f"unsupported database dialect: {dialect}")
+
+
 class TransformCache:
     """Reads and writes the cache of transformed strings."""
 
@@ -54,16 +69,7 @@ class TransformCache:
             }
             for source, transformed in transforms.items()
         ]
+        statement = build_conflict_free_insert(self._session.get_bind().dialect.name, values)
         # SQLModel asks for exec() over execute(), but types it for SELECT only,
         # hence the ignore on an INSERT.
-        await self._session.exec(self._insert_ignoring_duplicates(values))  # type: ignore[call-overload]
-
-    def _insert_ignoring_duplicates(self, values: list[dict[str, Any]]) -> Executable:
-        """ON CONFLICT DO NOTHING is dialect specific, so spell out both."""
-        dialect = self._session.get_bind().dialect.name
-        if dialect == "sqlite":
-            return sqlite_insert(TransformedString).values(values).on_conflict_do_nothing()
-        if dialect == "postgresql":
-            return postgres_insert(TransformedString).values(values).on_conflict_do_nothing()
-
-        raise RuntimeError(f"unsupported database dialect: {dialect}")
+        await self._session.exec(statement)  # type: ignore[call-overload]
