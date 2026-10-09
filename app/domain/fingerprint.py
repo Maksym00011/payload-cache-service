@@ -10,14 +10,19 @@ import hashlib
 import json
 from collections.abc import Sequence
 
-# Bump this when the output format or the transformer contract changes, so old
-# payloads get a new fingerprint instead of being served stale.
+# Bump this when the output format or the transformer contract changes. It is
+# part of both keys below, so old payloads and old cached transforms are both
+# superseded rather than served stale.
 FINGERPRINT_VERSION = "v1"
 
 
 def hash_source(value: str) -> str:
-    """Cache key for one string sent to the transformer."""
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    """Cache key for one string sent to the transformer.
+
+    The version is part of the key, so bumping it really does invalidate the
+    cached transforms and not just the payload fingerprints.
+    """
+    return hashlib.sha256(f"{FINGERPRINT_VERSION}:{value}".encode()).hexdigest()
 
 
 def payload_fingerprint(first: Sequence[str], second: Sequence[str]) -> str:
