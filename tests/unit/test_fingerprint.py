@@ -32,3 +32,15 @@ def test_payload_fingerprint_depends_on_item_order():
 def test_payload_fingerprint_does_not_confuse_item_boundaries():
     """A string containing the separator must not collide with two strings."""
     assert payload_fingerprint(["a,b"], ["x"]) != payload_fingerprint(["a", "b"], ["x"])
+
+
+def test_payload_fingerprint_depends_on_list_2():
+    """Guards the collision mutation testing found: a fingerprint that ignored
+    list_2 entirely passed every other test in this file."""
+    assert payload_fingerprint(["a"], ["x"]) != payload_fingerprint(["a"], ["y"])
+
+
+def test_payload_fingerprint_depends_on_item_order_in_list_2():
+    assert payload_fingerprint(["a", "b"], ["x", "y"]) != payload_fingerprint(
+        ["a", "b"], ["y", "x"]
+    )
