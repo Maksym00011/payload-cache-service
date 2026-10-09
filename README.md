@@ -33,6 +33,10 @@ The default database is SQLite at `./data/cache.db`, created on first start.
 Point `DATABASE_URL` at `postgresql+asyncpg://...` to use PostgreSQL instead;
 no code changes are needed. See `.env.example` for every setting.
 
+Compose and CI run SQLite only, so the PostgreSQL path is covered by compiling
+its upsert in a unit test rather than by running against a server. Standing one
+up in CI would be the next step if the service were deployed on PostgreSQL.
+
 ## The API
 
 ```bash
