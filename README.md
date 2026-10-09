@@ -152,14 +152,19 @@ app/
   services/        transformer, cache, errors, and the payload use case
 cli/               cache-cli: settings, http client, entry point
 tests/
-  unit/            domain, transformer, CLI parsing and SQL building — no I/O
+  unit/            domain, transformer, CLI parsing and SQL building
   integration/     real SQLite and the real ASGI app
+  conftest.py      throwaway database, fake transformer, in-process client
   doubles.py       transformer stand-ins
 ```
 
 `domain/` is framework-free on purpose: the interleaving and hashing rules are
 the parts most likely to change. `cli/` never imports `app/` — it is a client
 that only speaks HTTP. Both boundaries are checked, not just intended.
+
+`mypy --strict` covers `tests/` as well as the application, so a test double
+that stops matching the `Transformer` protocol fails the type check rather than
+drifting silently.
 
 ## Design decisions and trade-offs
 
@@ -209,7 +214,18 @@ not a string, or no answer at all becomes 502 or 504 rather than a 500 that
 blames this service.
 
 **`create_all` instead of Alembic.** Two tables, one setup step. A real
-deployment would run migrations; this is the documented shortcut.
+deployment would run migrations; this is the documented shortcut. It also means
+startup is only safe for a single process: several workers calling `create_all`
+against the same SQLite file at once can collide, which is one more reason
+migrations belong in a release step rather than in the application.
+
+**The service does not take the request model.** `PayloadService.create` takes
+the two lists, not `PayloadCreate`, so the use case does not depend on the HTTP
+layer's contract and can be driven from a worker or a script.
+
+**Empty lists are rejected.** The task only requires the two lists to be the
+same length, so two empty lists would technically be valid input for an empty
+payload. Storing one is not useful, so the schema requires at least one item.
 
 **Request limits live with the schema.** 1000 items per list, 4096 characters
 per item, and 200 000 bytes per request in total. The limit counts bytes rather
@@ -266,7 +282,7 @@ Known gaps, deliberately left to the deployment:
 make test
 ```
 
-72 tests. The ones that matter most:
+71 tests. The ones that matter most:
 
 - `test_render_output_matches_the_example_from_the_task` — the literal example
   from the task description.
